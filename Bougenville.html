@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Room Tour 3D – Ruang Kelas</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⭐</text></svg>">
+<style>
+:root{--bg:#dfe6ea;--pill:rgba(24,28,32,.66);--on:#fff;--acc:#f5a623;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1316;--pill:rgba(0,0,0,.62)}}
+:root[data-theme="dark"]{--bg:#0f1316;--pill:rgba(0,0,0,.62)}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--on);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+#app{position:relative;height:100%}
+canvas{display:block;width:100%;height:100%;cursor:grab}
+.ui{position:absolute;pointer-events:none;left:0;right:0;padding:0 12px}
+.ui>*{pointer-events:auto}
+#top{top:10px}
+#cap{display:inline-block;max-width:min(420px,100%);background:var(--pill);backdrop-filter:blur(8px);border-radius:14px;padding:10px 14px}
+#cap b{display:block;font-size:16px;margin-bottom:2px}
+#cap span{font-size:13px;line-height:1.4;opacity:.9}
+#bot{bottom:12px;display:flex;flex-direction:column;gap:10px}
+#pad{align-self:flex-end;display:grid;grid-template-columns:repeat(3,48px);grid-template-rows:repeat(2,48px);gap:6px}
+#pad button{font-size:18px}
+#pad .u{grid-column:2}
+#chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+#chips::-webkit-scrollbar{display:none}
+button{font:inherit;color:var(--on);background:var(--pill);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.18);border-radius:24px;padding:9px 14px;white-space:nowrap;cursor:pointer}
+#pad button{padding:0;border-radius:14px}
+button.on,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+#play{background:var(--acc);color:#2a1a00;border:0;font-weight:600}
+#hint{font-size:12px;opacity:.85;margin-top:6px;text-shadow:0 1px 3px #000}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="ui" id="top"><div id="cap"><b id="t">Ruang kelas</b><span id="d">Geser layar untuk melihat sekeliling.</span></div><div id="hint">Geser: lihat sekeliling · WASD / tombol panah: jalan</div></div>
+  <div class="ui" id="bot">
+    <div id="pad"><button class="u" data-k="f" aria-label="Maju">▲</button><button data-k="l" aria-label="Geser kiri">◀</button><button data-k="b" aria-label="Mundur">▼</button><button data-k="r" aria-label="Geser kanan">▶</button></div>
+    <div id="chips"></div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const app=$('app'),R=new THREE.WebGLRenderer({antialias:true});
+R.setPixelRatio(Math.min(devicePixelRatio,2));app.prepend(R.domElement);
+const S=new THREE.Scene();S.background=new THREE.Color(0x9aa5aa);
+const cam=new THREE.PerspectiveCamera(70,1,.05,50);cam.rotation.order='YXZ';
+function rs(){const w=app.clientWidth,h=app.clientHeight;R.setSize(w,h,false);cam.aspect=w/h;cam.fov=w<h?80:68;cam.updateProjectionMatrix()}
+addEventListener('resize',rs);rs();
+
+const W=8,D=7,H=3.6,WH=1.4;
+const M=(c,o)=>new THREE.MeshLambertMaterial(Object.assign({color:c},o));
+function wood(base,dark,rx,ry){const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');x.fillStyle=base;x.fillRect(0,0,256,256);
+  for(let i=0;i<80;i++){x.strokeStyle=dark;x.globalAlpha=Math.random()*.2;x.lineWidth=Math.random()*3+.5;const p=Math.random()*256;x.beginPath();x.moveTo(p,0);x.bezierCurveTo(p+Math.random()*10-5,80,p+Math.random()*10-5,170,p+Math.random()*8-4,256);x.stroke()}
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rx,ry);t.anisotropy=4;return t}
+const bx=(w,h,d,m,x=0,y=0,z=0,p=S)=>{const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);o.position.set(x,y,z);p.add(o);return o};
+
+// materials
+const wallM=M(0xd3dcdf),whiteM=M(0xf4f4f2),blk=M(0x16161a),brn=M(0x4a2523),cream=M(0xe9e4c8),blue=M(0x2a4fb0),paper=M(0xffffff);
+const metal=new THREE.MeshPhongMaterial({color:0xb5b5b0,shininess:60});
+const chM=M(0xffffff,{map:wood('#e3a857','#9a6a28',1,1)});
+const doorM=M(0xffffff,{map:wood('#dcc39b','#8a6a3c',1,1)});
+
+// floor + ceiling
+const fl=new THREE.Mesh(new THREE.PlaneGeometry(W,D),M(0xffffff,{map:wood('#4b2c22','#1a0d0a',4,3.5)}));fl.rotation.x=-Math.PI/2;S.add(fl);
+const ce=new THREE.Mesh(new THREE.PlaneGeometry(W,D),M(0xf2f4f5));ce.rotation.x=Math.PI/2;ce.position.y=H;S.add(ce);
+
+// walls: local x = along wall, local z = into the room
+function wall(len,x,z,ry){const g=new THREE.Group();
+  const up=new THREE.Mesh(new THREE.PlaneGeometry(len,H-WH),wallM);up.position.y=WH+(H-WH)/2;
+  const lo=new THREE.Mesh(new THREE.PlaneGeometry(len,WH),M(0xffffff,{map:wood('#d6bc92','#8a6a3c',len/1.4,1)}));lo.position.set(0,WH/2,.01);
+  bx(len,.04,.03,M(0xb89b6c),0,WH,.02,g);
+  g.add(up,lo);g.position.set(x,0,z);g.rotation.y=ry;S.add(g);return g}
+const wF=wall(W,0,-D/2,0),wB=wall(W,0,D/2,Math.PI),wL=wall(D,-W/2,0,Math.PI/2),wR=wall(D,W/2,0,-Math.PI/2);
+
+// cabinets (4 modules per wall)
+function cabinets(w){for(let i=0;i<4;i++){const g=new THREE.Group();g.position.set(-2.4+i*1.6,2.55,.19);
+  bx(1.62,.72,.38,whiteM,0,0,0,g);
+  for(const s of[-1,1]){bx(.77,.66,.02,doorM,s*.39,0,.195,g);bx(.04,.04,.03,metal,s*.06,-.22,.225,g)}
+  w.add(g)}}
+cabinets(wF);cabinets(wB);
+
+// window on left wall
+(function(){const g=new THREE.Group();g.position.set(-.5,2.25,0);
+  bx(2.3,1.75,.1,whiteM,0,0,.05,g);bx(2.05,1.5,.02,M(0x0a0f13),0,0,.11,g);
+  bx(.06,1.5,.04,whiteM,0,0,.13,g);bx(2.4,.06,.2,whiteM,0,-.9,.1,g);wL.add(g)})();
+
+// double door on right wall
+(function(){const g=new THREE.Group();g.position.set(-2.2,0,0);
+  bx(2.05,2.5,.07,whiteM,0,1.25,.035,g);
+  for(const s of[-1,1]){const l=new THREE.Group();l.position.set(s*.47,1.2,.09);
+    bx(.92,2.36,.04,whiteM,0,0,0,l);bx(.62,1.7,.02,M(0xeeeeec),0,.05,.025,l);
+    const r=new THREE.Mesh(new THREE.TorusGeometry(.3,.015,6,32),whiteM);r.position.set(0,0,.04);l.add(r);
+    bx(.12,.03,.05,metal,-s*.36,-.05,.05,l);g.add(l)}
+  wR.add(g)})();
+
+// TV on mobile stand
+(function(){const g=new THREE.Group();g.position.set(-.3,0,0);
+  bx(2.0,1.15,.06,new THREE.MeshPhongMaterial({color:0x08090b,shininess:120}),0,1.55,-3.38,g);
+  bx(.07,1.1,.05,blk,0,.55,-3.3,g);bx(.9,.04,.55,blk,0,.04,-3.1,g);bx(.7,.03,.3,blk,0,.55,-3.25,g);
+  bx(.3,.03,.2,blue,.1,.58,-3.22,g);S.add(g)})();
+
+// student chairs
+function chair(x,z,fold,ry){const g=new THREE.Group();
+  bx(.44,.035,.42,chM,0,.46,0,g);bx(.44,.4,.03,chM,0,.74,.2,g);
+  for(const a of[-1,1])for(const b of[-1,1])bx(.025,.45,.025,blk,a*.2,.225,b*.18,g);
+  bx(.03,.03,.42,blk,.23,.6,-.05,g);bx(.03,.15,.03,blk,.23,.53,-.24,g);
+  if(fold){const t=bx(.5,.03,.36,brn,.3,.85,-.05,g);t.rotation.z=1.35}
+  else{bx(.5,.03,.36,chM,0,.72,-.3,g);bx(.18,.03,.22,chM,.25,.72,-.12,g);
+    if(Math.random()<.4){const b=bx(.3,.025,.22,blue,0,.75,-.3,g);b.rotation.y=Math.random()*.5-.25;bx(.28,.02,.2,paper,0,.735,-.3,g)}}
+  g.position.set(x,0,z);g.rotation.y=ry;S.add(g)}
+for(let r=0;r<4;r++)for(let c=0;c<5;c++)chair(-2.9+c*1.25+(r%2)*.1,-.6+r*1.1,r==3&&c<3,(Math.random()-.5)*.12);
+
+// teacher desk
+(function(){const g=new THREE.Group();g.position.set(-3.1,0,-2.5);
+  bx(1.1,.04,.55,cream,0,.75,0,g);bx(.4,.5,.5,cream,.33,.48,0,g);
+  for(const a of[-1,1])bx(.04,.73,.04,metal,a*.5,.37,-.22,g);
+  bx(.4,.03,.4,cream,0,.45,.8,g);bx(.4,.4,.03,cream,0,.7,1,g);S.add(g)})();
+
+// hanging stars + sachets
+function star(R,r){const s=new THREE.Shape();for(let i=0;i<10;i++){const a=Math.PI/2+i*Math.PI/5,q=i%2?r:R,x=Math.cos(a)*q,y=Math.sin(a)*q;i?s.lineTo(x,y):s.moveTo(x,y)}s.closePath();return s}
+const hang=[];
+function hanger(x,z,L,col,kind){const p=new THREE.Group();p.position.set(x,2.2,z);
+  bx(.004,L,.004,paper,0,-L/2,0,p);
+  const it=new THREE.Group();it.position.y=-L-.24;
+  if(kind){const m=new THREE.MeshBasicMaterial({color:col,side:THREE.DoubleSide});const k=new THREE.Mesh(new THREE.PlaneGeometry(.2,.22),m);it.position.y=-L-.11;it.add(k)}
+  else{const wm=new THREE.MeshBasicMaterial({color:0xffffff,side:THREE.DoubleSide}),cm=new THREE.MeshBasicMaterial({color:col,side:THREE.DoubleSide});
+    it.add(new THREE.Mesh(new THREE.ShapeGeometry(star(.27,.15)),wm));const c=new THREE.Mesh(new THREE.ShapeGeometry(star(.22,.12)),cm);c.position.z=.003;it.add(c);const c2=c.clone();c2.position.z=-.003;it.add(c2)}
+  p.add(it);S.add(p);hang.push({it,p,ph:Math.random()*6})}
+const PU=0x8a4fb8,OR=0xf5a623,BL=0x2a8fb8;
+hanger(-2.4,-3.1,.7,PU);hanger(.5,-3.1,.95,OR);hanger(2.4,-3.1,.5,PU);hanger(1.6,-3.1,.35,0xeeeeee,1);
+hanger(-2,3.1,.8,BL);hanger(2.2,3.1,.9,OR);hanger(.2,3.1,.4,0x7fd0a0,1);hanger(-3.9,.2,.1,0x5a2d9e,1);
+
+// lights
+S.add(new THREE.HemisphereLight(0xffffff,0x77614f,.75));
+for(const[x,z]of[[-2,-1.5],[2,-1.5],[-2,2],[2,2]]){const l=new THREE.PointLight(0xfff3e0,.35,12);l.position.set(x,3.3,z);S.add(l);bx(1.2,.03,.15,new THREE.MeshBasicMaterial({color:0xffffff}),x,H-.02,z)}
+
+// camera state + tour
+const st=[
+ {n:'Pintu masuk',d:'Pintu ganda putih di sisi kanan. Dinding bawah berpanel kayu, lantai kayu gelap.',p:[3.3,1.6,-2.2],l:[-2,1.2,.5]},
+ {n:'Area belajar',d:'Kursi kuliah dengan meja lipat, tersusun dalam empat baris. Buku UTBK tergeletak di beberapa meja.',p:[-3.3,2.1,-2.9],l:[1.5,.7,1.8]},
+ {n:'Layar TV',d:'TV besar di atas standar beroda, diapit bintang gantung ungu dan oranye.',p:[.6,1.6,1.6],l:[-.3,1.5,-3.4]},
+ {n:'Lemari gantung depan',d:'Empat modul lemari putih berpintu kayu terang, lengkap dengan gagang kotak.',p:[-.6,1.5,-1.2],l:[.2,2.5,-3.5]},
+ {n:'Lemari gantung belakang',d:'Deret lemari yang sama di dinding belakang, dengan bintang biru dan oranye.',p:[.3,1.6,.3],l:[.3,2.5,3.5]},
+ {n:'Jendela',d:'Jendela berbingkai putih di dinding kiri. Tinggi plafon sekitar 3,6 m.',p:[2.4,1.6,.9],l:[-4,1.9,-.3]}];
+const ang=s=>{const dx=s.l[0]-s.p[0],dy=s.l[1]-s.p[1],dz=s.l[2]-s.p[2];s.y=Math.atan2(-dx,-dz);s.pt=Math.atan2(dy,Math.hypot(dx,dz))};st.forEach(ang);
+let pos=new THREE.Vector3(...st[0].p),yaw=st[0].y,pit=st[0].pt,tw=null,auto=false,dwell=0,cur=0;
+const chips=$('chips');
+const play=document.createElement('button');play.id='play';play.textContent='▶ Tur otomatis';chips.append(play);
+st.forEach((s,i)=>{const b=document.createElement('button');b.textContent=s.n;b.onclick=()=>{stopAuto();go(i)};chips.append(b)});
+function mark(i){[...chips.children].forEach((b,j)=>b.classList.toggle('on',j==i+1))}
+function go(i){cur=i;const s=st[i];let dy=s.y-yaw;dy=Math.atan2(Math.sin(dy),Math.cos(dy));
+  tw={t:0,dur:2.6,p0:pos.clone(),y0:yaw,pt0:pit,p1:new THREE.Vector3(...s.p),dy,pt1:s.pt};
+  $('t').textContent=s.n;$('d').textContent=s.d;mark(i)}
+function stopAuto(){auto=false;play.textContent='▶ Tur otomatis'}
+play.onclick=()=>{if(auto){stopAuto();return}auto=true;play.textContent='❚❚ Hentikan tur';go(0)};
+
+// input
+let drag=null;const cv=R.domElement,keys={};
+cv.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY};cv.setPointerCapture(e.pointerId);stopAuto();tw=null});
+cv.addEventListener('pointermove',e=>{if(!drag)return;yaw+=(e.clientX-drag.x)*.005;pit=Math.max(-1.2,Math.min(1.2,pit+(e.clientY-drag.y)*.005));drag={x:e.clientX,y:e.clientY}});
+const up=()=>drag=null;cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+const km={KeyW:'f',ArrowUp:'f',KeyS:'b',ArrowDown:'b',KeyA:'l',ArrowLeft:'l',KeyD:'r',ArrowRight:'r'};
+addEventListener('keydown',e=>{if(km[e.code]){keys[km[e.code]]=1;stopAuto();tw=null}});
+addEventListener('keyup',e=>{if(km[e.code])keys[km[e.code]]=0});
+document.querySelectorAll('#pad button').forEach(b=>{const k=b.dataset.k;
+  b.addEventListener('pointerdown',e=>{e.preventDefault();keys[k]=1;stopAuto();tw=null});
+  for(const ev of['pointerup','pointerleave','pointercancel'])b.addEventListener(ev,()=>keys[k]=0)});
+
+// loop
+const clk=new THREE.Clock();
+(function loop(){requestAnimationFrame(loop);const dt=Math.min(clk.getDelta(),.05),t=clk.elapsedTime;
+  if(tw){tw.t=Math.min(1,tw.t+dt/tw.dur);const e=tw.t<.5?2*tw.t*tw.t:1-Math.pow(-2*tw.t+2,2)/2;
+    pos.lerpVectors(tw.p0,tw.p1,e);yaw=tw.y0+tw.dy*e;pit=tw.pt0+(tw.pt1-tw.pt0)*e;
+    if(tw.t>=1){tw=null;dwell=4}}
+  else if(auto){dwell-=dt;if(dwell<=0)go((cur+1)%st.length)}
+  const f=(keys.f?1:0)-(keys.b?1:0),s=(keys.r?1:0)-(keys.l?1:0);
+  if(f||s){const v=2.2*dt;pos.x+=(-Math.sin(yaw)*f+Math.cos(yaw)*s)*v;pos.z+=(-Math.cos(yaw)*f-Math.sin(yaw)*s)*v;
+    pos.x=Math.max(-W/2+.4,Math.min(W/2-.4,pos.x));pos.z=Math.max(-D/2+.4,Math.min(D/2-.4,pos.z))}
+  hang.forEach(h=>{h.p.rotation.z=Math.sin(t*.9+h.ph)*.05;h.it.rotation.y=Math.sin(t*.6+h.ph)*.7});
+  cam.position.copy(pos);cam.rotation.set(pit,yaw,0);R.render(S,cam)})();
+mark(0);
+</script>
+</body>
+</html>
